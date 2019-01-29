@@ -415,7 +415,7 @@ void CETViewerView::GetTraceColors(SETViewerTrace *pTrace,COLORREF *pTextColor,C
 
     TCHAR tempText[1024];
     textLen=textLen<(1024-1)?textLen:1024-1;
-    memcpy(tempText,text,textLen);
+    memcpy(tempText,text,textLen*sizeof(TCHAR));
     tempText[textLen]=0;
 
     unsigned x;
@@ -750,7 +750,7 @@ LRESULT CALLBACK CETViewerView::ListEditProc(HWND hwnd, UINT uMsg, WPARAM wParam
          case ID_GET_ERROR_DESCRIPTION:
             if(begin!=-1 && end!=-1)
             {
-                memcpy(codeAddress,text+begin,end-begin);
+                memcpy(codeAddress,text+begin,(end-begin)*sizeof(TCHAR));
                 theApp.LookupError(codeAddress);
             }
             break;
@@ -1049,7 +1049,7 @@ void CETViewerView::Copy(bool bAllTraces)
     }
     GlobalUnlock(hglbCopy); 
 
-    if(SetClipboardData(CF_TEXT, hglbCopy)==NULL)
+    if(SetClipboardData(CF_UNICODETEXT, hglbCopy)==NULL)
     {MessageBox(_T("Failed to copy data to clipboard"),_T("Error"),MB_OK);}
 
     CloseClipboard();
@@ -1134,16 +1134,15 @@ void CETViewerView::GetTransferBuffer(int *pSize,TCHAR **buffer,bool bAllTraces)
                 GetListCtrl().GetItemText(index,x,columnText,1000);
                 // -3 : \r\n\0
                 templen+=_sntprintf_s(temp+templen,_countof(temp)-templen, sizeof(temp)-3-templen,x==0?_T("%s"):_T("\t%s"),columnText);
-                (*buffer)[size]=0;
             }
             temp[templen]=_T('\r');
             temp[templen+1]=_T('\n');
             temp[templen+2]=0;
             templen+=2;
-            memcpy((*buffer)+size,temp,templen);
+            memcpy((*buffer)+size,temp,templen*sizeof(TCHAR));
             size+=templen;
         }
-        *pSize=size;	
+        *pSize=size*sizeof(TCHAR);
     }
     else
     {
@@ -1187,16 +1186,15 @@ void CETViewerView::GetTransferBuffer(int *pSize,TCHAR **buffer,bool bAllTraces)
                 GetListCtrl().GetItemText(index,x,columnText,1000);
                 // -3 : \r\n\0
                 templen+=_sntprintf_s(temp+templen,_countof(temp)-templen,_countof(temp)-3-templen,x==0?_T("%s"):_T("\t%s"),columnText);
-                (*buffer)[size]=0;
             }
             temp[templen]=_T('\r');
             temp[templen+1]=_T('\n');
             temp[templen+2]=0;
             templen+=2;
-            memcpy((*buffer)+size,temp,templen);
+            memcpy((*buffer)+size,temp,templen*sizeof(TCHAR));
             size+=templen;
         }
-        *pSize=size;	
+        *pSize=size*sizeof(TCHAR);
     }
 }
 
