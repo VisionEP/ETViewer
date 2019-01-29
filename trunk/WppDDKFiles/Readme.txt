@@ -1,4 +1,4 @@
-The files in this folder tree are from the Windows 10 WDK.
+The files in this folder tree are from the Windows 10 WDK (10.0.17763.0).
 
 They are included as part of the project because the tracewpp.exe configuration files are only provided as part of the wdk and forcing people to install the wdk just to add tracing to your user mode application.
 

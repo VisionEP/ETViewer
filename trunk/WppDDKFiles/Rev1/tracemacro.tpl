@@ -1,91 +1,113 @@
 `**********************************************************************`
-`* This is an include template file for tracewpp preprocessor.        *`
+`* This is an include template file for the tracewpp preprocessor.    *`
 `*                                                                    *`
-`*    Copyright (c) Microsoft Corporation. All Rights Reserved.       *`
+`*    Copyright (c) Microsoft Corporation. All rights reserved.       *`
 `**********************************************************************`
-
-#if defined(__cplusplus)
-extern "C" {
-#endif
-
-#ifndef WPP_ALREADY_INCLUDED
-
 // template `TemplateFile`
-//   expects:
+
+// This template expects:
 //      WPP_THIS_FILE defined (see header.tpl)
 //      WPP_LOGGER_ARG  defined
 //      WPP_GET_LOGGER  defined
 //      WPP_ENABLED() defined
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifdef WPP_ALREADY_INCLUDED
+
+#undef WPP_LOCAL_TraceGuids
+#undef WPP_INVOKE_WPP_DEBUG
+
+#else // WPP_ALREADY_INCLUDED
+
 #ifndef NO_CHECK_FOR_NULL_STRING
 #ifndef WPP_CHECK_FOR_NULL_STRING
-#define WPP_CHECK_FOR_NULL_STRING 1
+#define WPP_CHECK_FOR_NULL_STRING
 #endif
-#endif
+#endif // NO_CHECK_FOR_NULL_STRING
 
-#define WPP_EVAL(_value_) _value_
+#define WPP_FLATTEN(...) __VA_ARGS__
+#define WPP_EVAL(x) x
 #define WPP_(Id) WPP_EVAL(WPP_) ## WPP_EVAL(Id) ## WPP_EVAL(_) ## WPP_EVAL(WPP_THIS_FILE) ## WPP_EVAL(__LINE__)
 
-#if !defined(WPP_INLINE)
+#ifndef WPP_INLINE
 #define WPP_INLINE DECLSPEC_NOINLINE __inline
 #endif
 
-#else   // #ifndef WPP_ALREADY_INCLUDED
+#endif // WPP_ALREADY_INCLUDED
 
-#undef WPP_LOCAL_TraceGuids
+#ifdef WPP_NO_ANNOTATIONS
 
-#endif  // #ifndef WPP_ALREADY_INCLUDED
+#define WPP_ANNOTATE(x)
 
-#if !defined(WPP_NO_ANNOTATIONS)
+#else // WPP_NO_ANNOTATIONS
 
 `FORALL Msg IN Messages WHERE MsgIsPrivate`
 #ifdef WPP_PUBLIC_`Msg.FlagValue`
 #define WPP_PUBLIC_ANNOT_`Msg.Name`
 #endif
 `ENDFOR`
-
 `FORALL Msg IN Messages WHERE MsgIsPublic`
 #define WPP_PUBLIC_ANNOT_`Msg.Name`
 `ENDFOR`
-
 #ifdef WPP_EMIT_FUNC_NAME
 #define WPP_FUNC_NAME L" FUNC=" _WPPW(__FUNCTION__)
-#else
+#else // WPP_EMIT_FUNC_NAME
 #define WPP_FUNC_NAME
-#endif
-
+#endif // WPP_EMIT_FUNC_NAME
 `FORALL Msg IN Messages`
-#if !defined(WPP_USER_MSG_GUID)
-# define WPP_ANNOTATE_`Msg.Name`_FINAL(P, File, Name, ...)    __annotation(L ## P, L"`Msg.Guid` `CurrentDir` // SRC=" _WPPW(File) L" MJ=`ENV MAJORCOMP` MN=`ENV MINORCOMP`", L"#typev "  _WPPW(Name) L" `Msg.MsgNo` \"`Msg.Text`\" // `Msg.Indent` `Msg.GooPairs`" WPP_FUNC_NAME, __VA_ARGS__)
-#else
-# define WPP_ANNOTATE_`Msg.Name`_FINAL(P, File, Name, ...)    __annotation(L ## P, WPP_GUID_WTEXT WPP_USER_MSG_GUID L"`CurrentDir` // SRC=" _WPPW(File) L" MJ=`ENV MAJORCOMP` MN=`ENV MINORCOMP`", L"#typev "  _WPPW(Name) L" `Msg.MsgNo` \"`Msg.Text`\" // `Msg.Indent` `Msg.GooPairs`" WPP_FUNC_NAME, __VA_ARGS__)
-#endif
+
+#ifdef WPP_USER_MSG_GUID
+# define WPP_ANNOTATE_`Msg.Name`_FINAL(P, File, Name, ...) __annotation( \
+    L ## P, \
+    WPP_GUID_WTEXT WPP_USER_MSG_GUID L"`CurrentDir` // SRC=" _WPPW(File) \
+    L" MJ=`ENV MAJORCOMP` MN=`ENV MINORCOMP`", \
+    L"#typev " _WPPW(Name) \
+    L" `Msg.MsgNo` \"`Msg.Text`\" // `Msg.Indent` `Msg.GooPairs`" \
+    WPP_FUNC_NAME, \
+    __VA_ARGS__)
+#else // WPP_USER_MSG_GUID
+# define WPP_ANNOTATE_`Msg.Name`_FINAL(P, File, Name, ...) __annotation( \
+    L ## P, \
+    L"`Msg.Guid` `CurrentDir` // SRC=" _WPPW(File) \
+    L" MJ=`ENV MAJORCOMP` MN=`ENV MINORCOMP`", \
+    L"#typev " _WPPW(Name) \
+    L" `Msg.MsgNo` \"`Msg.Text`\" // `Msg.Indent` `Msg.GooPairs`" \
+    WPP_FUNC_NAME, \
+    __VA_ARGS__)
+#endif // WPP_USER_MSG_GUID
 
 #ifdef WPP_PUBLIC_ANNOT_`Msg.Name`
-    #define WPP_ANNOTATE_`Msg.Name` WPP_ANNOTATE_`Msg.Name`_FINAL("TMF:", "Unknown_cxx00", "Unknown_cxx00", L"{"`FORALL Arg IN Msg.Arguments`, L"Arg, `Arg.MofType` -- `Arg.No`" `ENDFOR Arg`, L"}", L"PUBLIC_TMF:")
-                                        
-    #ifndef WPP_PUBLIC_TMC
-        #define WPP_PUBLIC_TMC
-    #endif
-#else
-    #define WPP_ANNOTATE_`Msg.Name` WPP_ANNOTATE_`Msg.Name`_FINAL("TMF:", "`SourceFile.Name`", "`Msg.Name`", L"{"`FORALL Arg IN Msg.Arguments`, L"`Arg.Name`, `Arg.MofType` -- `Arg.No`" `ENDFOR Arg`, L"}")
-#endif
+# define WPP_ANNOTATE_`Msg.Name` WPP_ANNOTATE_`Msg.Name`_FINAL( \
+    "TMF:", \
+    "Unknown_cxx00", \
+    "Unknown_cxx00", \
+    L"{"`FORALL Arg IN Msg.Arguments`, \
+    L"Arg, `Arg.MofType` -- `Arg.No`" `ENDFOR Arg`, \
+    L"}", \
+    L"PUBLIC_TMF:")
+# ifndef WPP_PUBLIC_TMC
+#  define WPP_PUBLIC_TMC // Adds "PUBLIC_TMF:" to the control guid annotation
+# endif
+#else // WPP_PUBLIC_ANNOT_`Msg.Name`
+# define WPP_ANNOTATE_`Msg.Name` WPP_ANNOTATE_`Msg.Name`_FINAL( \
+    "TMF:", \
+    "`SourceFile.Name`", \
+    "`Msg.Name`", \
+    L"{"`FORALL Arg IN Msg.Arguments`, \
+    L"`Arg.Name`, `Arg.MofType` -- `Arg.No`" `ENDFOR Arg`, \
+    L"}")
+#endif // WPP_PUBLIC_ANNOT_`Msg.Name`
 `ENDFOR`
 
 # define WPP_ANNOTATE(x) WPP_ANNOTATE_ ## x,
 
-#else
-# define WPP_ANNOTATE(x)
-#endif
+#endif // WPP_NO_ANNOTATIONS
+`IF TraceGuids !Empty`
 
-
-#if `TraceGuids.Count`
-#if !defined(WPP_USER_MSG_GUID)
-
-#define WPP_LOCAL_TraceGuids WPP_`FORALL Guid IN TraceGuids``Guid.Normalized`_`ENDFOR`Traceguids
-extern const __declspec(selectany) GUID WPP_LOCAL_TraceGuids[] = {`FORALL Guid IN TraceGuids` `Guid.Struct`, `ENDFOR`};
-
-#else
+#ifdef WPP_USER_MSG_GUID
 
 #define WPP_LOCAL_MSG_VAR(Guid) WPP_XGLUE3(WPP_, WPP_GUID_NORM Guid, _Traceguids)
 
@@ -95,26 +117,31 @@ extern const __declspec(selectany) GUID WPP_LOCAL_MSG_VAR(Guid)[] = { WPP_GUID_S
 WPP_LOCAL_MSG_GUID(WPP_USER_MSG_GUID);
 #define WPP_LOCAL_TraceGuids WPP_LOCAL_MSG_VAR(WPP_USER_MSG_GUID)
 
-#endif
-#endif
+#else // WPP_USER_MSG_GUID
 
+#define WPP_LOCAL_TraceGuids WPP_`FORALL Guid IN TraceGuids``Guid.Normalized`_`ENDFOR`Traceguids
+extern const __declspec(selectany) GUID WPP_LOCAL_TraceGuids[] = {`FORALL Guid IN TraceGuids` `Guid.Struct`, `ENDFOR`};
+
+#endif // WPP_USER_MSG_GUID
+`ENDIF TraceGuids !Empty`
 
 #ifndef WPP_ALREADY_INCLUDED
 
-#if !defined(WPP_TRACE_OPTIONS)
-enum {WPP_TRACE_OPTIONS = TRACE_MESSAGE_SEQUENCE   | TRACE_MESSAGE_GUID
-                        | TRACE_MESSAGE_SYSTEMINFO | TRACE_MESSAGE_TIMESTAMP };
-#endif
+#ifndef WPP_TRACE_OPTIONS
+enum { WPP_TRACE_OPTIONS =
+    TRACE_MESSAGE_SEQUENCE   |
+    TRACE_MESSAGE_GUID       |
+    TRACE_MESSAGE_SYSTEMINFO |
+    TRACE_MESSAGE_TIMESTAMP };
+#endif // WPP_TRACE_OPTIONS
 
 #ifndef WPP_LOGPAIR_SEPARATOR
 # define WPP_LOGPAIR_SEPARATOR ,
 #endif
-
 #ifndef WPP_LOGPAIR_SIZET
 # define WPP_LOGPAIR_SIZET SIZE_T
 #endif
-
-#if !defined(WPP_LOGPAIR)
+#ifndef WPP_LOGPAIR
 # define WPP_LOGPAIR(_Size, _Addr)     (_Addr),((WPP_LOGPAIR_SIZET)(_Size))WPP_LOGPAIR_SEPARATOR
 #endif
 
@@ -123,194 +150,314 @@ enum {WPP_TRACE_OPTIONS = TRACE_MESSAGE_SEQUENCE   | TRACE_MESSAGE_GUID
 
 // Marshalling macros.
 
-#if !defined(WPP_LOGASTR)
-# if !defined(WPP_CHECK_FOR_NULL_STRING)
-#  define WPP_LOGASTR(_value)  WPP_LOGPAIR(strlen(_value) + 1, _value )
-# else
-#  define WPP_LOGASTR(_value)  WPP_LOGPAIR( (_value)?strlen(_value) + 1:5, (_value)?(_value):"NULL" )
-# endif
-#endif
+#ifndef WPP_LOGASTR
+# ifdef WPP_CHECK_FOR_NULL_STRING
+#  define WPP_LOGASTR(_value)  WPP_LOGPAIR( \
+    (_value) ? strlen(_value) + 1 : 5, \
+    (_value) ?       (_value)     : "NULL" )
+# else // WPP_CHECK_FOR_NULL_STRING
+#  define WPP_LOGASTR(_value)  WPP_LOGPAIR( \
+    strlen(_value) + 1, \
+    _value )
+# endif // WPP_CHECK_FOR_NULL_STRING
+#endif // WPP_LOGASTR
 
-#if !defined(WPP_LOGWSTR)
-# if !defined(WPP_CHECK_FOR_NULL_STRING)
-#  define WPP_LOGWSTR(_value)  WPP_LOGPAIR( (wcslen(_value)+1) * sizeof(WCHAR), _value)
-# else
-#  define WPP_LOGWSTR(_value)  WPP_LOGPAIR( (_value)?(((_value)[0] == 0)?7 * sizeof(WCHAR):(wcslen(_value) + 1)* sizeof(WCHAR)):5 * sizeof(WCHAR), (_value)?(((_value)[0] == 0) ? L"<NULL>" : (_value)):L"NULL")
-# endif
-#endif
+#ifndef WPP_LOGWSTR
+# ifdef WPP_CHECK_FOR_NULL_STRING
+#  define WPP_LOGWSTR(_value)  WPP_LOGPAIR( \
+    ((_value) ? wcslen(_value) + 1 : 5) * sizeof(WCHAR), \
+     (_value) ?       (_value)     : L"NULL" )
+# else // WPP_CHECK_FOR_NULL_STRING
+#  define WPP_LOGWSTR(_value)  WPP_LOGPAIR( \
+    (wcslen(_value) + 1) * sizeof(WCHAR), \
+    _value )
+# endif // WPP_CHECK_FOR_NULL_STRING
+#endif // WPP_LOGWSTR
 
-#if !defined(WPP_LOGPGUID)
+#ifndef WPP_LOGPGUID
 # define WPP_LOGPGUID(_value) WPP_LOGPAIR( sizeof(GUID), (_value) )
-#endif
+#endif // WPP_LOGPGUID
 
 
-#if !defined(WPP_LOGPSID)
-# if !defined(WPP_CHECK_FOR_NULL_STRING)
-# define WPP_LOGPSID(_value)  WPP_LOGPAIR( WPP_GetLengthSid(_value), (_value) )
-# else
-# define WPP_LOGPSID(_value)  WPP_LOGPAIR( (_value)? (WPP_IsValidSid(_value)? \
-                                                                        WPP_GetLengthSid(_value):5):5, \
-                                                                        (_value)? (WPP_IsValidSid(_value)?\
-                                                                        (_value):"NULL"):"NULL")
-#endif
-#endif
+#ifndef WPP_LOGPSID
+# ifdef WPP_CHECK_FOR_NULL_STRING
+# define WPP_LOGPSID(_value)  WPP_LOGPAIR( \
+    (_value) && WPP_IsValidSid(_value) ? WPP_GetLengthSid(_value) : 5, \
+    (_value) && WPP_IsValidSid(_value) ? (_value) : (void const*)"NULL")
+# else // WPP_CHECK_FOR_NULL_STRING
+# define WPP_LOGPSID(_value)  WPP_LOGPAIR( \
+    WPP_GetLengthSid(_value), \
+    (_value) )
+#endif // WPP_CHECK_FOR_NULL_STRING
+#endif // WPP_LOGPSID
 
-#if !defined(WPP_LOGCSTR)
+#ifndef WPP_LOGCSTR
 # define WPP_LOGCSTR(_x) \
-    WPP_LOGPAIR( sizeof((_x).Length), &(_x).Length ) WPP_LOGPAIR( (_x).Length, (_x).Buffer )
-#endif
+    WPP_LOGPAIR( sizeof(USHORT),     &(_x).Length ) \
+    WPP_LOGPAIR( (USHORT)(_x).Length, (_x).Length ? (_x).Buffer : "" )
+#endif // WPP_LOGCSTR
 
-#if !defined(WPP_LOGUSTR)
+#ifndef WPP_LOGUSTR
 # define WPP_LOGUSTR(_x) \
-    WPP_LOGPAIR( sizeof((_x).Length), &(_x).Length ) WPP_LOGPAIR( (_x).Length, (_x).Buffer )
-#endif
+    WPP_LOGPAIR( sizeof(USHORT),     &(_x).Length ) \
+    WPP_LOGPAIR( (USHORT)(_x).Length, (_x).Length ? (_x).Buffer : L"" )
+#endif // WPP_LOGUSTR
 
-#if !defined(WPP_LOGPUSTR)
-#if !defined(WPP_CHECK_FOR_NULL_STRING)
+#ifndef WPP_LOGPUSTR
+#ifdef WPP_CHECK_FOR_NULL_STRING
+# define WPP_LOGPUSTR(_x) \
+    WPP_LOGPAIR( \
+        sizeof(USHORT), \
+        (_x) ? &(_x)->Length : (void const*)L"\x08" ) \
+    WPP_LOGPAIR( \
+        (_x)               ? (USHORT)(_x)->Length : 0x08, \
+        (_x)&&(_x)->Length ? (_x)->Buffer         : L"NULL" )
+#else // WPP_CHECK_FOR_NULL_STRING
 # define WPP_LOGPUSTR(_x) WPP_LOGUSTR(*(_x))
-#else
-# define WPP_LOGPUSTR(_x) WPP_LOGPAIR( sizeof(USHORT), (_x && (*(_x)).Length)? &(*(_x)).Length : L"\5")\
-                          WPP_LOGPAIR( (_x && (*(_x)).Buffer)?(*(_x)).Length:5*sizeof(WCHAR), (_x && (*(_x)).Buffer)?(*(_x)).Buffer:L"NULL")
-#endif
-#endif
+#endif // WPP_CHECK_FOR_NULL_STRING
+#endif // WPP_LOGPUSTR
 
-#if !defined(WPP_LOGPCSTR)
-#if !defined(WPP_CHECK_FOR_NULL_STRING)
+#ifndef WPP_LOGPCSTR
+#ifdef WPP_CHECK_FOR_NULL_STRING
+# define WPP_LOGPCSTR(_x) \
+    WPP_LOGPAIR( \
+        sizeof(USHORT), \
+        (_x) ? &(_x)->Length : (void const*)L"\x04" ) \
+    WPP_LOGPAIR( \
+        (_x)               ? (USHORT)(_x)->Length : 0x04, \
+        (_x)&&(_x)->Length ? (_x)->Buffer         : "NULL" )
+#else // WPP_CHECK_FOR_NULL_STRING
 # define WPP_LOGPCSTR(_x) WPP_LOGCSTR(*(_x))
-#else
-# define WPP_LOGPCSTR(_x) WPP_LOGPAIR( sizeof(USHORT), (_x && (*(_x)).Length)? &(*(_x)).Length : L"\5")\
-                          WPP_LOGPAIR( (_x && (*(_x)).Buffer)?(*(_x)).Length:5*sizeof(char), (_x && (*(_x)).Buffer)?((const char *)(*(_x)).Buffer):"NULL")
-#endif
-#endif
+#endif // WPP_CHECK_FOR_NULL_STRING
+#endif // WPP_LOGPCSTR
 
-#if !defined(WPP_LOGSTDSTR)
-#define WPP_LOGSTDSTR(_value)  WPP_LOGPAIR( (_value).size()+1, (_value).c_str() )
-#endif
+#ifdef __cplusplus
 
-#endif  //  #ifndef WPP_ALREADY_INCLUDED
-
-#if !defined(WPP_CHECK_INIT)
-# define WPP_CHECK_INIT (WPP_CB != (WPP_CB_TYPE*)&WPP_CB) && 
-#endif
-
-
-`FORALL i IN TypeSigSet WHERE !UnsafeArgs`
-#ifndef WPP_SF_`i.Name`_def
-#       define WPP_SF_`i.Name`_def
-WPP_INLINE void WPP_SF_`i.Name`(WPP_LOGGER_ARG unsigned short id, LPCGUID TraceGuid`i.Arguments`)
-   { WPP_TRACE(WPP_GET_LOGGER, WPP_TRACE_OPTIONS, (LPGUID)TraceGuid, id, `i.LogArgs` 0); }
-#endif  // #ifndef WPP_SF_`i.Name`_def
-`ENDFOR`
-
-`FORALL i IN TypeSigSet WHERE UnsafeArgs`
-#ifndef WPP_SF_`i.Name`_def
-#       define WPP_SF_`i.Name`_def
-WPP_INLINE void WPP_SF_`i.Name`(WPP_LOGGER_ARG unsigned short id, LPCGUID TraceGuid, ...) {
-   va_list ap; va_start(ap, TraceGuid); UNREFERENCED_PARAMETER(ap);
-   {
-     `i.DeclVars`
-      WPP_TRACE(WPP_GET_LOGGER, WPP_TRACE_OPTIONS, (LPGUID)TraceGuid, id, `i.LogArgs` 0);
-
-   }
-}
-#endif  // #ifndef WPP_SF_`i.Name`_def
-`ENDFOR`
-#ifndef WPP_POST
-#  define WPP_POST()
-#endif
-
-#ifndef WPP_PRE
-#  define WPP_PRE()
-#endif
-
-#ifndef WPP_LOG_ALWAYS
-#  define WPP_LOG_ALWAYS(...)
-#endif      
-
-#ifdef WPP_DEBUG
-`FORALL i IN Messages WHERE !MsgArgs`
-#ifndef WPP`i.GooId`_POST
-#  define WPP`i.GooId`_POST(`i.GooArgs`)
-#endif
-#ifndef WPP`i.GooId`_PRE
-#  define WPP`i.GooId`_PRE(`i.GooArgs`)
-#endif
-#define WPP_CALL_`i.Name`(`i.FixedArgs``i.MacroArgs`) \
-     WPP_LOG_ALWAYS(WPP_EX`i.GooId`(`i.GooVals`),`i.DbgMacroArgs`)\
-     WPP`i.GooId`_PRE(`i.GooVals`) \
-     WPP_ANNOTATE(`i.Name`) \
-     ( ( \
-         WPP_CHECK_INIT `i.MsgVal`WPP`i.GooId`_ENABLED(`i.GooVals`) ? \
-          WPP_DEBUG((`i.DbgMacroArgs`)), \
-          WPP_SF_`i.TypeSig`(WPP`i.GooId`_LOGGER(`i.GooVals`) `i.MsgNo`, \
-                             WPP_LOCAL_TraceGuids+0`i.MacroExprs`), 1:0  \
-     ) ) \
-     WPP`i.GooId`_POST(`i.GooVals`)
-`ENDFOR`
-#else
-`FORALL i IN Messages WHERE !MsgArgs`
-#ifndef WPP`i.GooId`_POST
-#  define WPP`i.GooId`_POST(`i.GooArgs`)
-#endif
-#ifndef WPP`i.GooId`_PRE
-#  define WPP`i.GooId`_PRE(`i.GooArgs`)
-#endif
-#define WPP_CALL_`i.Name`(`i.FixedArgs``i.MacroArgs`) \
-     WPP_LOG_ALWAYS(WPP_EX`i.GooId`(`i.GooVals`),`i.DbgMacroArgs`) \
-     WPP`i.GooId`_PRE(`i.GooVals`) \
-     WPP_ANNOTATE(`i.Name`) \
-     ( ( \
-         WPP_CHECK_INIT `i.MsgVal`WPP`i.GooId`_ENABLED(`i.GooVals`) ? \
-            WPP_SF_`i.TypeSig`(WPP`i.GooId`_LOGGER(`i.GooVals`) `i.MsgNo`, \
-                               WPP_LOCAL_TraceGuids+0`i.MacroExprs`), 1:0  \
-     ) ) \
-     WPP`i.GooId`_POST(`i.GooVals`)
-`ENDFOR`
-#endif
-
-
-#ifdef WPP_DEBUG
-`FORALL i IN Messages WHERE MsgArgs`
-#ifndef WPP`i.GooId`_POST
-#  define WPP`i.GooId`_POST(`i.GooArgs`)
-#endif
-#ifndef WPP`i.GooId`_PRE
-#  define WPP`i.GooId`_PRE(`i.GooArgs`)
-#endif
-#define WPP_CALL_`i.Name`(`i.FixedArgs` MSGARGS) \
-            WPP_LOG_ALWAYS(WPP_EX`i.GooId`(`i.GooVals`),MSGARGS)\
-            WPP`i.GooId`_PRE(`i.GooVals`) \
-            WPP_ANNOTATE(`i.Name`) \
-            (( \
-                WPP_CHECK_INIT  WPP`i.GooId`_ENABLED(`i.GooVals`)? \
-                WPP_SF_`i.TypeSig`(WPP`i.GooId`_LOGGER(`i.GooVals`) `i.MsgNo`,WPP_LOCAL_TraceGuids+0 WPP_R`i.ReorderSig` MSGARGS), \
-                WPP_DEBUG(MSGARGS),1:0 \
-             )) \
-             WPP`i.GooId`_POST(`i.GooVals`)
-`ENDFOR`
-#else
-`FORALL i IN Messages WHERE MsgArgs`
-#ifndef WPP`i.GooId`_POST
-#  define WPP`i.GooId`_POST(`i.GooArgs`)
-#endif
-#ifndef WPP`i.GooId`_PRE
-#  define WPP`i.GooId`_PRE(`i.GooArgs`)
-#endif
-#define WPP_CALL_`i.Name`(`i.FixedArgs` MSGARGS) \
-            WPP_LOG_ALWAYS(WPP_EX`i.GooId`(`i.GooVals`), MSGARGS)\
-            WPP`i.GooId`_PRE(`i.GooVals`) \
-            WPP_ANNOTATE(`i.Name`) \
-            ( \
-                WPP_CHECK_INIT  WPP`i.GooId`_ENABLED(`i.GooVals`)?\
-                WPP_SF_`i.TypeSig`(WPP`i.GooId`_LOGGER(`i.GooVals`) `i.MsgNo`,WPP_LOCAL_TraceGuids+0 WPP_R`i.ReorderSig` MSGARGS),\
-                1:0 \
-             ) \
-             WPP`i.GooId`_POST(`i.GooVals`)
-`ENDFOR`
-#endif
-
-
-
-#if defined(__cplusplus)
+#ifndef WPP_POINTER_TO_USHORT
+struct WppPointerToUshort
+{
+    USHORT m_val;
+    explicit WppPointerToUshort(USHORT val) : m_val(val) {}
+    USHORT const* get() const { return &m_val; }
 };
+#define WPP_POINTER_TO_USHORT(val) (WppPointerToUshort((val)).get())
+#endif // WPP_POINTER_TO_USHORT
+
+#ifndef WPP_LOGCPPSTR
+#define WPP_LOGCPPSTR(_value) \
+    WPP_LOGPAIR( \
+        sizeof(USHORT), \
+        WPP_POINTER_TO_USHORT((USHORT)((_value).size()*sizeof(*(_value).c_str()))) ) \
+    WPP_LOGPAIR( \
+        (USHORT)((_value).size()*sizeof(*(_value).c_str())), \
+        (_value).c_str() )
+#endif // WPP_LOGCPPSTR
+
+#ifndef WPP_LOGCPPVEC
+#define WPP_LOGCPPVEC(_value) \
+    WPP_LOGPAIR( \
+        sizeof(USHORT), \
+        WPP_POINTER_TO_USHORT((USHORT)((_value).size()*sizeof(*(_value).data()))) ) \
+    WPP_LOGPAIR( \
+        (USHORT)((_value).size()*sizeof(*(_value).data())), \
+        (_value).data() + ((_value).data() == NULL) )
+#endif // WPP_LOGCPPVEC
+
+#endif // __cplusplus
+
+#endif // WPP_ALREADY_INCLUDED
+
+#ifndef WPP_ENABLE_FLAG_BIT
+#define WPP_ENABLE_FLAG_BIT(flag) (WPP_CB[((flag) >> 16)].Control).Flags[( (0xFFFF & ((flag)-1) ) / 32)] & (1 << ( ((flag)-1) & 31 ))
+#endif
+`FORALL i IN TypeSigSet WHERE !UnsafeArgs`
+
+#ifndef WPP_SF_`i.Name`_def
+# define WPP_SF_`i.Name`_def
+WPP_INLINE void WPP_SF_`i.Name`(WPP_LOGGER_ARG unsigned short id, LPCGUID TraceGuid`i.Arguments`)
+{ WPP_TRACE(WPP_GET_LOGGER, WPP_TRACE_OPTIONS, (LPGUID)TraceGuid, id, `i.LogArgs` (void*)0); }
+#endif // WPP_SF_`i.Name`_def
+
+#if ENABLE_WPP_RECORDER
+
+//
+// Generate the WPP_RECORDER_SP_`i.Name` function
+//
+#ifndef WPP_RECORDER_SF_`i.Name`_def
+#define WPP_RECORDER_SF_`i.Name`_def
+WPP_INLINE
+VOID
+WPP_RECORDER_SF_`i.Name`(
+    PVOID    AutoLogContext,
+    UCHAR    level,
+    ULONG    flags,
+    USHORT   id,
+    LPCGUID  traceGuid
+    `i.Arguments`
+    )
+{
+    if (WPP_ENABLE_FLAG_BIT(flags) &&
+        (WPP_CONTROL(flags).Level >= level))
+    {
+        WPP_TRACE(
+            WPP_CONTROL(flags).Logger,
+            WPP_TRACE_OPTIONS,
+            (LPGUID)traceGuid,
+            id,
+            `i.LogArgs` (void*)0);
+    }
+
+    WPP_RECORDER(AutoLogContext, level, flags, (LPGUID) traceGuid, id, `i.LogArgs` (void*)0);
+}
+#endif // WPP_RECORDER_SF_`i.Name`_def
+
+#endif // ENABLE_WPP_RECORDER
+`ENDFOR`
+`FORALL i IN TypeSigSet WHERE UnsafeArgs`
+
+#ifndef WPP_SF_`i.Name`_def
+#define WPP_SF_`i.Name`_def
+WPP_INLINE void WPP_SF_`i.Name`(WPP_LOGGER_ARG unsigned short id, LPCGUID TraceGuid, ...)
+{
+    va_list ap;
+    va_start(ap, TraceGuid);
+    UNREFERENCED_PARAMETER(ap);
+    {
+        `i.DeclVars`
+        WPP_TRACE(
+            WPP_GET_LOGGER,
+            WPP_TRACE_OPTIONS,
+            (LPGUID)TraceGuid,
+            id,
+            `i.LogArgs` (void*)0);
+    }
+}
+#endif // WPP_SF_`i.Name`_def
+`ENDFOR`
+
+// WPP_LOG_ALWAYS:
+// Called for each event: WPP_LOG_ALWAYS(EX, MSG, arg1, arg2, arg3...) Other()
+// If defined, the definition needs to include a trailing comma or semicolon.
+// In addition, you will need to define a WPP_EX_[args](args...) macro to
+// extract any needed information from the other arguments (e.g. LEVEL).
+#ifndef WPP_LOG_ALWAYS
+#define WPP_LOG_ALWAYS(...)
+#endif
+
+// WPP_DEBUG:
+// Called for each enabled event: WPP_DEBUG((MSG, arg1, arg2, arg3...)), Other()
+// Potential definition: printf MsgArgs
+// Definition should not include any trailing comma or semicolon.
+#ifdef WPP_DEBUG
+#define WPP_INVOKE_WPP_DEBUG(MsgArgs) WPP_DEBUG(MsgArgs)
+#else // WPP_DEBUG
+#define WPP_INVOKE_WPP_DEBUG(MsgArgs) (void)0
+#endif // WPP_DEBUG
+`FORALL i IN Messages WHERE !MsgArgs`
+
+// WPP_CALL_`i.Name`
+#ifndef WPP`i.GooId`_PRE
+#  define WPP`i.GooId`_PRE(`i.GooArgs`)
+#endif
+#ifndef WPP`i.GooId`_POST
+#  define WPP`i.GooId`_POST(`i.GooArgs`)
+#endif
+#if ENABLE_WPP_RECORDER
+#define WPP_CALL_`i.Name`(`i.FixedArgs``i.MacroArgs`) \
+    WPP_LOG_ALWAYS(WPP_EX`i.GooId`(`i.GooVals`), `i.DbgMacroArgs`) \
+    WPP`i.GooId`_PRE(`i.GooVals`) \
+    WPP_ANNOTATE(`i.Name`) \
+    (( \
+        `i.MsgVal`WPP_RECORDER`i.GooId`_FILTER(`i.GooVals`) \
+        ?   WPP_INVOKE_WPP_DEBUG((`i.DbgMacroArgs`)), \
+            WPP_RECORDER_SF_`i.TypeSig`( \
+                WPP_RECORDER`i.GooId`_ARGS(`i.GooVals`), \
+                `i.MsgNo`, \
+                WPP_LOCAL_TraceGuids+0`i.MacroExprs`), \
+            1 \
+        :   0 \
+    )) \
+    WPP`i.GooId`_POST(`i.GooVals`)
+#else // ENABLE_WPP_RECORDER
+#define WPP_CALL_`i.Name`(`i.FixedArgs``i.MacroArgs`) \
+    WPP_LOG_ALWAYS(WPP_EX`i.GooId`(`i.GooVals`), `i.DbgMacroArgs`) \
+    WPP`i.GooId`_PRE(`i.GooVals`) \
+    WPP_ANNOTATE(`i.Name`) \
+    (( \
+        WPP_CHECK_INIT `i.MsgVal`WPP`i.GooId`_ENABLED(`i.GooVals`) \
+        ?   WPP_INVOKE_WPP_DEBUG((`i.DbgMacroArgs`)), \
+            WPP_SF_`i.TypeSig`( \
+                WPP`i.GooId`_LOGGER(`i.GooVals`) \
+                `i.MsgNo`, \
+                WPP_LOCAL_TraceGuids+0`i.MacroExprs`), \
+            1 \
+        :   0 \
+    )) \
+    WPP`i.GooId`_POST(`i.GooVals`)
+#endif // ENABLE_WPP_RECORDER
+`ENDFOR`
+`FORALL i IN Messages WHERE MsgArgs`
+
+// WPP_CALL_`i.Name`
+#ifndef WPP`i.GooId`_PRE
+#  define WPP`i.GooId`_PRE(`i.GooArgs`)
+#endif
+#ifndef WPP`i.GooId`_POST
+#  define WPP`i.GooId`_POST(`i.GooArgs`)
+#endif
+#if ENABLE_WPP_RECORDER
+#define WPP_CALL_`i.Name`(`i.FixedArgs` MSGARGS) \
+    WPP_LOG_ALWAYS(WPP_EX`i.GooId`(`i.GooVals`), WPP_FLATTEN MSGARGS) \
+    WPP`i.GooId`_PRE(`i.GooVals`) \
+    WPP_ANNOTATE(`i.Name`) \
+    (( \
+        `i.MsgVal`WPP_RECORDER`i.GooId`_FILTER(`i.GooVals`) \
+        ?   WPP_INVOKE_WPP_DEBUG(MSGARGS), \
+            WPP_RECORDER_SF_`i.TypeSig`( \
+                WPP_RECORDER`i.GooId`_ARGS(`i.GooVals`), \
+                `i.MsgNo`, \
+                WPP_LOCAL_TraceGuids+0 WPP_R`i.ReorderSig` MSGARGS), \
+            1 \
+        :   0 \
+    )) \
+    WPP`i.GooId`_POST(`i.GooVals`)
+#else // ENABLE_WPP_RECORDER
+#define WPP_CALL_`i.Name`(`i.FixedArgs` MSGARGS) \
+    WPP_LOG_ALWAYS(WPP_EX`i.GooId`(`i.GooVals`), WPP_FLATTEN MSGARGS) \
+    WPP`i.GooId`_PRE(`i.GooVals`) \
+    WPP_ANNOTATE(`i.Name`) \
+    (( \
+        WPP_CHECK_INIT WPP`i.GooId`_ENABLED(`i.GooVals`) \
+        ?   WPP_INVOKE_WPP_DEBUG(MSGARGS), \
+            WPP_SF_`i.TypeSig`( \
+                WPP`i.GooId`_LOGGER(`i.GooVals`) \
+                `i.MsgNo`, \
+                           WPP_LOCAL_TraceGuids+0 WPP_R`i.ReorderSig` MSGARGS),\
+            1 \
+        :   0 \
+    )) \
+    WPP`i.GooId`_POST(`i.GooVals`)
+#endif // ENABLE_WPP_RECORDER
+`ENDFOR`
+
+// Functions
+`FORALL f IN Funcs WHERE !DoubleP && !MsgArgs`
+#undef `f.Name`
+#define `f.Name` WPP_(CALL)
+`ENDFOR`
+`FORALL f IN Funcs WHERE DoubleP && !MsgArgs`
+#undef `f.Name`
+#define `f.Name`(ARGS) WPP_(CALL) ARGS
+`ENDFOR`
+`FORALL f IN Funcs WHERE MsgArgs`
+#undef `f.Name`
+#define `f.Name`(`f.FixedArgs` MSGARGS) WPP_(CALL)(`f.FixedArgs` MSGARGS)
+`ENDFOR`
+`FORALL r IN Reorder`
+#undef  WPP_R`r.Name`
+#define WPP_R`r.Name`(`r.Arguments`) `r.Permutation`
+`ENDFOR`
+
+#ifdef __cplusplus
+} // extern "C"
 #endif

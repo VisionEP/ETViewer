@@ -1,20 +1,56 @@
 `**********************************************************************`
-`* This is an include template file for tracewpp preprocessor.        *`
+`* This is an include template file for the tracewpp preprocessor.    *`
 `*                                                                    *`
-`*    Copyright (c) Microsoft Corporation. All Rights Reserved.       *`
+`*    Copyright (c) Microsoft Corporation. All rights reserved.       *`
 `**********************************************************************`
-
 // template `TemplateFile`
+
 //
 //     Defines a set of functions that simplifies
-//     User mode registration for tracing
+//     user mode registration for tracing
 //
 
-#if defined(__cplusplus)
+#ifdef __cplusplus
 extern "C" {
 #endif
 
+#ifndef WPPINIT_EXPORT
+#define WPPINIT_EXPORT
+#endif
+
+#ifndef WppDebug
+#define WppDebug(a,b)
+#endif
+
 #define __WARNING_BANNED_LEGACY_INSTRUMENTATION_API_USAGE 28735
+
+#if ENABLE_WPP_RECORDER
+#ifdef WPP_MACRO_USE_KM_VERSION_FOR_UM
+WPPINIT_EXPORT
+VOID
+__cdecl
+WppAutoLogStart(
+    _In_ WPP_CB_TYPE * WppCb,
+    _In_ PDRIVER_OBJECT DrvObj,
+    _In_ PCUNICODE_STRING RegPath
+    );
+#else
+WPPINIT_EXPORT
+VOID
+__cdecl
+WppHeapAutoLogStart(
+    _In_ WPP_CB_TYPE * WppCb
+    );
+#endif // WPP_MACRO_USE_KM_VERSION_FOR_UM
+
+WPPINIT_EXPORT
+VOID
+__cdecl
+WppAutoLogStop(
+    _In_ WPP_CB_TYPE * WppCb
+    );
+
+#endif // ENABLE_WPP_RECORDER
 
 // define annotation record that will carry control information to pdb (in case somebody needs it)
 WPP_FORCEINLINE void WPP_CONTROL_ANNOTATION() {
@@ -31,7 +67,7 @@ WPP_FORCEINLINE void WPP_CONTROL_ANNOTATION() {
 #  define WPP_DEFINE_CONTROL_GUID(Name,Guid,Bits) __annotation(L"TMC:", WPP_GUID_WTEXT Guid, _WPPW(WPP_STRINGIZE(Name)) Bits WPP_TMC_ANNOT_SUFIX);
 #  define WPP_DEFINE_BIT(Name) , _WPPW(#Name)
 
-    WPP_CONTROL_GUIDS 
+    WPP_CONTROL_GUIDS
 #  undef WPP_DEFINE_BIT
 #  undef WPP_DEFINE_CONTROL_GUID
 #endif
@@ -42,7 +78,16 @@ LPCGUID WPP_REGISTRATION_GUIDS[WPP_LAST_CTL];
 WPP_CB_TYPE WPP_MAIN_CB[WPP_LAST_CTL];
 
 #define WPP_NEXT(Name) ((WPP_TRACE_CONTROL_BLOCK*) \
-    (WPP_XGLUE(WPP_CTL_, WPP_EVAL(Name)) + 1 == WPP_LAST_CTL ? 0:WPP_MAIN_CB + WPP_XGLUE(WPP_CTL_, WPP_EVAL(Name)) + 1))    
+    (WPP_XGLUE(WPP_CTL_, WPP_EVAL(Name)) + 1 == WPP_LAST_CTL ? 0:WPP_MAIN_CB + WPP_XGLUE(WPP_CTL_, WPP_EVAL(Name)) + 1))
+
+#if ENABLE_WPP_RECORDER
+#define INIT_WPP_RECORDER(Arr)                  \
+   Arr->Control.AutoLogContext = NULL;          \
+   Arr->Control.AutoLogVerboseEnabled = 0x0;    \
+   Arr->Control.AutoLogAttachToMiniDump = 0x0;
+#else
+#define INIT_WPP_RECORDER(Arr)
+#endif
 
 __inline void WPP_INIT_CONTROL_ARRAY(WPP_CB_TYPE* Arr) {
 #define WPP_DEFINE_CONTROL_GUID(Name,Guid,Bits)                        \
@@ -52,6 +97,7 @@ __inline void WPP_INIT_CONTROL_ARRAY(WPP_CB_TYPE* Arr) {
    Arr->Control.Level = 0;                                             \
    Arr->Control.Options = 0;                                           \
    Arr->Control.Flags[0] = 0;                                          \
+   INIT_WPP_RECORDER(Arr)                                              \
    ++Arr;
 #define WPP_DEFINE_BIT(BitName) L" " L ## #BitName
 WPP_CONTROL_GUIDS
@@ -70,10 +116,79 @@ WPP_CONTROL_GUIDS
 #undef WPP_DEFINE_CONTROL_GUID
 }
 
-
- 
 VOID WppInitUm(_In_opt_ LPCWSTR AppName);
- 
+//
+// WPP_INIT_TRACING and WPP_CLEANUP macros are defined differently for kernel
+// mode and user mode. In order to support mode-agnostic WDF drivers,
+// WPP_INIT_TRACING and WPP_CLEANUP macros for UMDF 2.x user-mode drivers are
+// being updated to be same as kernel mode macros. This difference is based
+// upon the macro WPP_MACRO_USE_KM_VERSION_FOR_UM.
+//
+
+#ifdef WPP_MACRO_USE_KM_VERSION_FOR_UM
+VOID WppInitUmDriver(
+                     _In_ PDRIVER_OBJECT DrvObject,
+                     _In_ PCUNICODE_STRING RegPath
+                     );
+
+VOID WppInitUm(_In_opt_ LPCWSTR AppName);
+
+#ifndef WPP_MACRO_USE_KM_VERSION_FOR_UM_IGNORE_VALIDATION
+
+//
+// To reduce confusion due to this breaking change, we have overloaded
+// WPP_INIT_TRACING with some macro wizardry to notify the developer
+// if (s)he is using the deprecated single argument version.
+//
+// Example of how this works:
+//
+// 1) WPP_INIT_TRACING is called with two parameters, X and Y.
+// 2) FX_WPP_COUNT_ARGUMENTS is called, but due to a bug with VC++ __VA_ARGS__ remains as a single token.
+// 3) FX_WPP_EXPAND_ARGUMENTS expands the argument list to (X, Y, 2, 1, 0)
+// 4) FX_WPP_DETERMINE_MACRO_NAME puts X into _1_, Y into _2_, 2 into Count (the value we want),
+//    and the rest into "..." which are discarded. Count is then combined with WPP_INIT_TRACING.
+// 5) WPP_GLUE combines "WPP_INIT_TRACING2" with "(X, Y)" giving us our function call: WPP_INIT_TRACING2(X,Y)
+//
+#define FX_WPP_DETERMINE_MACRO_NAME(_1_, _2_, Count, ...) WPP_INIT_TRACING##Count
+#define FX_WPP_EXPAND_ARGUMENTS(Args) FX_WPP_DETERMINE_MACRO_NAME Args
+#define FX_WPP_COUNT_ARGUMENTS(...) FX_WPP_EXPAND_ARGUMENTS((__VA_ARGS__, 2, 1, 0))
+
+#define WPP_INIT_TRACING(...) WPP_GLUE(FX_WPP_COUNT_ARGUMENTS(__VA_ARGS__),(__VA_ARGS__))
+
+//
+// _pragma(message("...")) doesn't work with newline characters. "ERROR..." is an
+// undocumented keyword in visual studio that causes an error, but this is ignored by razzle.
+// Instead we use an undeclared identifier.
+//
+#define WPP_INIT_TRACING1(AppName) \
+        __pragma(message("ERROR: This version of WPP_INIT_TRACING has been deprecated from UMDF 2.15 onwards")) \
+        __pragma(message("WPP_INIT_TRACING( ")) \
+        __pragma(message("  _In_ PDRIVER_OBJECT DriverObject, ")) \
+        __pragma(message("  _In_ PUNICODE_STRING RegistryPath ")) \
+        __pragma(message("); ")) \
+        __pragma(message("WPP_CLEANUP( ")) \
+        __pragma(message("  _In_ PDRIVER_OBJECT DriverObject ")) \
+        __pragma(message(");" )) \
+        __pragma(message("Please refer to the MSDN documentation on WPP tracing for more information.")) \
+        WPP_INIT_TRACING_FUNCTION_IS_DEPRECATED_PLEASE_REFER_TO_BUILD_LOG_FOR_MORE_INFORMATION;
+
+#define WPP_INIT_TRACING2(DrvObj, RegPath)                                   \
+                 WppLoadTracingSupport;                                      \
+                 (WPP_CONTROL_ANNOTATION(),WPP_INIT_STATIC_DATA,             \
+                  WPP_INIT_GUID_ARRAY((LPCGUID*)&WPP_REGISTRATION_GUIDS),    \
+                  WPP_CB= WPP_MAIN_CB,                                       \
+                  WppInitUmDriver(DrvObj, RegPath))
+
+#else
+#define WPP_INIT_TRACING(DrvObj, RegPath)                                    \
+                 WppLoadTracingSupport;                                      \
+                 (WPP_CONTROL_ANNOTATION(),WPP_INIT_STATIC_DATA,             \
+                  WPP_INIT_GUID_ARRAY((LPCGUID*)&WPP_REGISTRATION_GUIDS),    \
+                  WPP_CB= WPP_MAIN_CB,                                       \
+                  WppInitUmDriver(DrvObj, RegPath))
+
+#endif // WPP_MACRO_USE_KM_VERSION_FOR_UM_IGNORE_VALIDATION
+#else
 #define WPP_INIT_TRACING(AppName)                                           \
                 WppLoadTracingSupport;                                      \
                 (WPP_CONTROL_ANNOTATION(),WPP_INIT_STATIC_DATA,             \
@@ -81,9 +196,9 @@ VOID WppInitUm(_In_opt_ LPCWSTR AppName);
                  WPP_CB= WPP_MAIN_CB,                                       \
                  WppInitUm(AppName))
 
-
+#endif // WPP_MACRO_USE_KM_VERSION_FOR_UM
 void WPP_Set_Dll_CB(
-                    PWPP_TRACE_CONTROL_BLOCK Control, 
+                    PWPP_TRACE_CONTROL_BLOCK Control,
                     VOID * DllControlBlock,
                     USHORT Flags)
 {
@@ -95,7 +210,7 @@ void WPP_Set_Dll_CB(
             memset(Control, 0, sizeof(WPP_TRACE_CONTROL_BLOCK));
             *(PWPP_TRACE_CONTROL_BLOCK*)DllControlBlock = Control;
             Control->Options = WPP_VER_LH_CB_FORWARD_PTR;
-            
+
         }
     }
 
@@ -109,16 +224,8 @@ void WPP_Set_Dll_CB(
 
 #define DEFAULT_LOGGER_NAME             L"stdout"
 
-#if !defined(WppDebug)
-#  define WppDebug(a,b)
-#endif
-
 #if !defined(WPPINIT_STATIC)
 #  define WPPINIT_STATIC
-#endif
-
-#if !defined(WPPINIT_EXPORT)
-#  define WPPINIT_EXPORT
 #endif
 
 #define WPP_GUID_FORMAT     "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x"
@@ -134,8 +241,8 @@ void WPP_Set_Dll_CB(
 
 #if defined (WPP_GLOBALLOGGER)
 
-__inline 
-TRACEHANDLE 
+__inline
+TRACEHANDLE
 WppQueryLogger(
     _In_opt_ PCWSTR LoggerName
     )
@@ -303,7 +410,7 @@ Cleanup:
 
 #ifdef WPP_MANAGED_CPP
 #pragma managed(push, off)
-#endif 
+#endif
 
 ULONG
 __stdcall
@@ -370,33 +477,53 @@ WppControlCallback(
     if (Ctx->Options & WPP_VER_WHISTLER_CB_FORWARD_PTR && Ctx->Cb) {
         Ctx = Ctx->Cb; // use forwarding address
     }
-    
+
     Ctx->Logger   = Logger;
     Ctx->Level    = Level;
     Ctx->Flags[0] = Flags;
-        
+
 #ifdef WPP_PRIVATE_ENABLE_CALLBACK
     WPP_PRIVATE_ENABLE_CALLBACK(Ctx->ControlGuid,
                                 Logger,
                                 (RequestCode != WMI_DISABLE_EVENTS) ? TRUE : FALSE,
                                 Flags,
                                 Level);
-#endif 
+#endif
 
     return(ERROR_SUCCESS);
 }
 
 #ifdef WPP_MANAGED_CPP
 #pragma managed(pop)
-#endif 
+#endif
 
 #pragma warning(push)
 #pragma warning(disable:4068)
 
+
+#ifdef WPP_MACRO_USE_KM_VERSION_FOR_UM
+WPPINIT_EXPORT
+VOID WppInitUmDriver(
+    _In_ PDRIVER_OBJECT DrvObject,
+    _In_ PCUNICODE_STRING RegPath
+    )
+{
+    WppInitUm(L"UMDF Driver");
+
+#if ENABLE_WPP_RECORDER
+    WppAutoLogStart(&WPP_CB[0], DrvObject, RegPath);
+#else
+    UNREFERENCED_PARAMETER(DrvObject);
+    UNREFERENCED_PARAMETER(RegPath);
+#endif // ENABLE_WPP_RECORDER
+}
+
+#endif // WPP_MACRO_USE_KM_VERSION_FOR_UM
+
 WPPINIT_EXPORT
 VOID WppInitUm(_In_opt_ LPCWSTR AppName)
 {
-    C_ASSERT(WPP_MAX_FLAG_LEN_CHECK); 
+    C_ASSERT(WPP_MAX_FLAG_LEN_CHECK);
 
     PWPP_TRACE_CONTROL_BLOCK Control = &WPP_CB[0].Control;
     TRACE_GUID_REGISTRATION TraceRegistration;
@@ -418,7 +545,7 @@ VOID WppInitUm(_In_opt_ LPCWSTR AppName)
     WppDebug(1, ("Registering %ws\n", AppName) );
 
     for(; Control; Control = Control->Next) {
-        
+
         ControlGuid = *RegistrationGuids++;
         TraceRegistration.Guid = ControlGuid;
         TraceRegistration.RegHandle = 0;
@@ -428,7 +555,7 @@ VOID WppInitUm(_In_opt_ LPCWSTR AppName)
                     WPP_GUID_ELEMENTS(ControlGuid),
                     AppName,
                     Control->FlagsLen));
-                    
+
 
 #ifdef WPP_MOF_RESOURCENAME
         if (AppName != NULL) {
@@ -451,7 +578,7 @@ VOID WppInitUm(_In_opt_ LPCWSTR AppName)
 #endif  //  #ifdef WPP_DLL
         }
         WppDebug(1,("registerTraceGuids => registering with WMI, App=%ws, Mof=%ws, ImagePath=%ws\n",AppName,WppMofResourceName,ImagePath));
-        
+
 #pragma prefast(suppress:__WARNING_BANNED_LEGACY_INSTRUMENTATION_API_USAGE, "WPP generated, requires legacy providers");
         Status = RegisterTraceGuidsW(                   // Always use Unicode
 #else   // ifndef WPP_MOF_RESOURCENAME
@@ -474,10 +601,10 @@ VOID WppInitUm(_In_opt_ LPCWSTR AppName)
 #endif // #ifndef WPP_MOF_RESOURCENAME
             &Control->UmRegistrationHandle
         );
-    
-    
+
+
     if (Status != ERROR_SUCCESS) {
-    
+
         WppDebug(1, ("RegisterTraceGuid failed %d\n", Status) );
 
     }
@@ -487,21 +614,25 @@ VOID WppInitUm(_In_opt_ LPCWSTR AppName)
         //
         // Check if Global logger is active if we have not been immediately activated
         //
-        if (Control->Logger == (TRACEHANDLE)NULL) {          
+        if (Control->Logger == (TRACEHANDLE)NULL) {
             WppInitGlobalLogger( ControlGuid, (PTRACEHANDLE)&Control->Logger, &Control->Flags[0], &Control->Level);
         }
-        
-#endif  //#if defined (WPP_GLOBALLOGGER) 
 
+#endif  //#if defined (WPP_GLOBALLOGGER)
+
+#if ENABLE_WPP_RECORDER
+#ifndef WPP_MACRO_USE_KM_VERSION_FOR_UM
+    WppHeapAutoLogStart(&WPP_CB[0]);
+#endif
+#endif
     }
 
-    
 }
 
 WPPINIT_EXPORT
 VOID WppCleanupUm(    VOID   )
 {
-    PWPP_TRACE_CONTROL_BLOCK Control; 
+    PWPP_TRACE_CONTROL_BLOCK Control;
 
     if (WPP_CB == (WPP_CB_TYPE*)&WPP_CB){
         //
@@ -521,12 +652,17 @@ VOID WppCleanupUm(    VOID   )
             Control->UmRegistrationHandle = (TRACEHANDLE)NULL ;
         }
     }
-    
+
+#if ENABLE_WPP_RECORDER
+    WppAutoLogStop(&WPP_CB[0]);
+#endif
+
     WPP_CB = (WPP_CB_TYPE*)&WPP_CB;
 }
+
 #pragma warning(pop)
 
 
-#if defined(__cplusplus)
-};
+#ifdef __cplusplus
+} // extern "C"
 #endif

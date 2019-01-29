@@ -1,10 +1,10 @@
 `**********************************************************************`
-`* This is an include template file for tracewpp preprocessor.        *`
+`* This is an include template file for the tracewpp preprocessor.    *`
 `*                                                                    *`
-`*    Copyright (c) Microsoft Corporation. All Rights Reserved.       *`
+`*    Copyright (c) Microsoft Corporation. All rights reserved.       *`
 `**********************************************************************`
-
 // template `TemplateFile`
+
 #ifdef  WPP_THIS_FILE
 // included twice
 #       define  WPP_ALREADY_INCLUDED
@@ -16,19 +16,38 @@
 #ifndef WPP_ALREADY_INCLUDED
 
 `* Dump the definitions specified via -D on the command line to WPP *`
-
 `FORALL def IN MacroDefinitions`
 #define `def.Name` `def.Alias`
 `ENDFOR`
 
+#include <evntrace.h>
+#include <stddef.h>
+#include <stdarg.h>
+#include <wmistr.h>
 
-
-#define WPP_THIS_FILE `SourceFile.CanonicalName`
-
-#if defined(__cplusplus)
+#ifdef __cplusplus
 extern "C" {
 #endif
 
+typedef
+LONG
+(*PFN_WPPQUERYTRACEINFORMATION) (
+    IN  TRACE_INFORMATION_CLASS TraceInformationClass,
+    OUT PVOID  TraceInformation,
+    IN  ULONG  TraceInformationLength,
+    OUT PULONG RequiredLength OPTIONAL,
+    IN  PVOID  Buffer OPTIONAL
+    );
+
+typedef
+LONG
+(*PFN_WPPTRACEMESSAGE)(
+    IN ULONG64  LoggerHandle,
+    IN ULONG   MessageFlags,
+    IN LPCGUID MessageGuid,
+    IN USHORT  MessageNumber,
+    IN ...
+    );
 
 typedef enum _WPP_TRACE_API_SUITE {
     WppTraceDisabledSuite,
@@ -45,7 +64,7 @@ VOID
 (NTAPI *PETW_CLASSIC_CALLBACK)(
     _In_ LPCGUID Guid,
     _In_ UCHAR ControlCode,
-    _In_ PVOID EnableContext, 
+    _In_ PVOID EnableContext,
     _In_opt_ PVOID CallbackContext
     );
 
@@ -102,19 +121,21 @@ __declspec(selectany) PFN_WPPGETVERSION              pfnWppGetVersion = NULL;
 
 __declspec(selectany) WPP_TRACE_API_SUITE            WPPTraceSuite = WppTraceDisabledSuite;
 
-
 #if !defined(_NTRTL_)
-#if !defined(_NTHAL_) 
-      // fake RTL_TIME_ZONE_INFORMATION //
-    typedef int RTL_TIME_ZONE_INFORMATION;
+#if !defined(_NTHAL_)
+// fake RTL_TIME_ZONE_INFORMATION //
+typedef int RTL_TIME_ZONE_INFORMATION;
 #endif
-#   define _WMIKM_  
+#define _WMIKM_
 #endif
+
 #ifndef WPP_TRACE
 #define WPP_TRACE pfnWppTraceMessage
 #endif
 
 #if ENABLE_WPP_RECORDER
+
+#define _ENABLE_WPP_RECORDER TRUE
 
 #ifndef WPP_RECORDER
 #define WPP_RECORDER WppAutoLogTrace
@@ -141,6 +162,8 @@ WppAutoLogTrace(
     IN ...
     );
 
+#else
+#define _ENABLE_WPP_RECORDER FALSE
 #endif
 
 VOID
@@ -157,39 +180,37 @@ WppTraceCallback(
     _Inout_ PVOID Context,
     _Out_ PULONG Size
     );
+
 #if !defined(WPP_TRACE_CONTROL_NULL_GUID)
 DEFINE_GUID(WPP_TRACE_CONTROL_NULL_GUID, 0x00000000L, 0x0000, 0x0000, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00);
 #endif
+
 #define WPP_TRACE_CONTROL(Function,Buffer,BufferSize,ReturnSize) WppTraceCallback(Function,NULL,BufferSize,Buffer,&WPP_CB[0],&ReturnSize);
-    
 
 __inline ULONG64 WppQueryLogger(_In_opt_ PCWSTR LoggerName)
 {
-
-    if (WppTraceWinXP == WPPTraceSuite) {
-
-        ULONG ReturnLength ;
-        LONG Status ;
-        ULONG64 TraceHandle ;
-        UNICODE_STRING  Buffer  ;
-           
-        RtlInitUnicodeString(&Buffer, LoggerName ? LoggerName : L"stdout");
-
-        Status = pfnWppQueryTraceInformation(
-                                            TraceHandleByNameClass,
-                                            (PVOID)&TraceHandle,
-                                            sizeof(TraceHandle),
-                                            &ReturnLength,
-                                            (PVOID)&Buffer
-                                            );
-        if (Status != STATUS_SUCCESS) {
-           return (ULONG64)0 ;
-        }
-        
-        return TraceHandle ;
-    } else {
-        return (ULONG64) 0 ;
+    if (WppTraceWinXP != WPPTraceSuite) {
+        return (ULONG64)0;
     }
+
+    ULONG ReturnLength;
+    LONG Status;
+    ULONG64 TraceHandle;
+    UNICODE_STRING Buffer;
+
+    RtlInitUnicodeString(&Buffer, LoggerName ? LoggerName : L"stdout");
+
+    Status = pfnWppQueryTraceInformation(TraceHandleByNameClass,
+                                         (PVOID)&TraceHandle,
+                                         sizeof(TraceHandle),
+                                         &ReturnLength,
+                                         (PVOID)&Buffer
+                                         );
+    if (Status != STATUS_SUCCESS) {
+        return (ULONG64)0;
+    }
+
+    return TraceHandle;
 }
 
 typedef LONG (*WMIENTRY_NEW)(
@@ -208,22 +229,22 @@ typedef struct _WPP_TRACE_CONTROL_BLOCK
     struct _WPP_TRACE_CONTROL_BLOCK    *Next;
     __int64                             Logger;
     PUNICODE_STRING                     RegistryPath;
-    UCHAR                               FlagsLen; 
-    UCHAR                               Level; 
+    UCHAR                               FlagsLen;
+    UCHAR                               Level;
     USHORT                              Reserved;
     ULONG                               Flags[1];
     ULONG                               ReservedFlags;
     REGHANDLE                           RegHandle;
-#if ENABLE_WPP_RECORDER    
+#if ENABLE_WPP_RECORDER
     PVOID                               AutoLogContext;
     USHORT                              AutoLogVerboseEnabled;
     USHORT                              AutoLogAttachToMiniDump;
-#endif    
+#endif
 } WPP_TRACE_CONTROL_BLOCK, *PWPP_TRACE_CONTROL_BLOCK;
 
-VOID WppCleanupKm(_In_opt_ PDEVICE_OBJECT pDeviceObject);
+VOID WppCleanupKm(_When_(_ENABLE_WPP_RECORDER, _In_) _When_(!_ENABLE_WPP_RECORDER, _In_opt_) PDRIVER_OBJECT DriverObject);
 
-#define WPP_CLEANUP(DrvObj) WppCleanupKm((PDEVICE_OBJECT) DrvObj)
+#define WPP_CLEANUP(DriverObject) WppCleanupKm((PDRIVER_OBJECT)DriverObject)
 
 #define WPP_IsValidSid RtlValidSid
 #define WPP_GetLengthSid RtlLengthSid
@@ -231,23 +252,21 @@ VOID WppCleanupKm(_In_opt_ PDEVICE_OBJECT pDeviceObject);
 //
 // Callback routine to be defined by the driver, which will be called from WPP callback
 // WPP will pass current valued of : GUID, Logger, Enable, Flags, and Level
-// 
-// To activate driver must define WPP_PRIVATE_ENABLE_CALLBACK in their code, sample below 
+//
+// To activate driver must define WPP_PRIVATE_ENABLE_CALLBACK in their code, sample below
 // #define WPP_PRIVATE_ENABLE_CALLBACK MyPrivateCallback;
 //
 typedef
 VOID
 (*PFN_WPP_PRIVATE_ENABLE_CALLBACK)(
-    _In_ LPCGUID Guid,   
-    _In_ __int64 Logger, 
-    _In_ BOOLEAN Enable, 
-    _In_ ULONG Flags,    
-    _In_ UCHAR Level);   
+    _In_ LPCGUID Guid,
+    _In_ __int64 Logger,
+    _In_ BOOLEAN Enable,
+    _In_ ULONG Flags,
+    _In_ UCHAR Level);
 
-#if defined(__cplusplus)
-};
+#ifdef __cplusplus
+} // extern "C"
 #endif
 
 #endif  // #ifndef WPP_ALREADY_INCLUDED
-
-

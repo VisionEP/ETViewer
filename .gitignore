@@ -1,0 +1,10 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/trunk/.vs/ETViewer/v15/ipch
+/trunk/.vs/ETViewer/v15
+/trunk/Bin
+/trunk/ETViewer/ETViewer.vcxproj.user
+/trunk/TraceExample/TraceExample.vcxproj.user
+/trunk/UnitTests/ETViewer_gtest/ETViewer_gtest.vcxproj.user

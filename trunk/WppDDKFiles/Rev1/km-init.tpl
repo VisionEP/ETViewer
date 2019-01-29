@@ -1,10 +1,10 @@
 `**********************************************************************`
-`* This is an include template file for tracewpp preprocessor.        *`
+`* This is an include template file for the tracewpp preprocessor.    *`
 `*                                                                    *`
-`*    Copyright (c) Microsoft Corporation. All Rights Reserved.       *`
+`*    Copyright (c) Microsoft Corporation. All rights reserved.       *`
 `**********************************************************************`
-
 // template `TemplateFile`
+
 //
 //     Defines a set of functions that simplifies
 //     kernel mode registration for tracing
@@ -13,14 +13,17 @@
 #pragma warning(disable: 4201)
 #include <ntddk.h>
 
-#if defined(__cplusplus)
+#ifdef __cplusplus
 extern "C" {
 #endif
 
-#if !defined(WppDebug)
-#define WppDebug(a,b)
+#ifndef WPPINIT_EXPORT
+#define WPPINIT_EXPORT
 #endif
 
+#ifndef WppDebug
+#define WppDebug(a,b)
+#endif
 
 WPPINIT_EXPORT
 VOID
@@ -28,32 +31,43 @@ WppInitGlobalLogger(
     _In_ LPCGUID ControlGuid,
     _Out_ PTRACEHANDLE LoggerHandle,
     _Out_ PULONG Flags,
-    _Out_ PUCHAR Level 
+    _Out_ PUCHAR Level
     );
 
-
 WPPINIT_EXPORT
-VOID 
+VOID
 WppInitKm(
-    _In_opt_ PDEVICE_OBJECT DevObject,
-    _In_opt_ PCUNICODE_STRING RegPath
+    _When_(_ENABLE_WPP_RECORDER, _In_) _When_(!_ENABLE_WPP_RECORDER, _In_opt_) PDRIVER_OBJECT DriverObject,
+    _When_(_ENABLE_WPP_RECORDER, _In_) _When_(!_ENABLE_WPP_RECORDER, _In_opt_) PCUNICODE_STRING RegPath
     );
 
 #if ENABLE_WPP_RECORDER
 WPPINIT_EXPORT
-VOID 
+VOID
 WppAutoLogStart(
     _In_ WPP_CB_TYPE * WppCb,
     _In_ PDRIVER_OBJECT DrvObj,
     _In_ PCUNICODE_STRING RegPath
     );
 
-VOID 
+VOID
 WppAutoLogStop(
     _In_ WPP_CB_TYPE * WppCb,
     _In_ PDRIVER_OBJECT DrvObj
-    );    
-#endif    
+    );
+
+VOID
+imp_WppRecorderReplay(
+    _In_ PVOID       WppCb,
+    _In_ TRACEHANDLE WppTraceHandle,
+    _In_ ULONG       EnableFlags,
+    _In_ UCHAR       EnableLevel
+    );
+
+#ifndef ENABLE_WPP_RECORDER_REPLAY
+#define ENABLE_WPP_RECORDER_REPLAY 1
+#endif
+#endif
 
 #ifdef ALLOC_PRAGMA
     #pragma alloc_text( PAGE, WppLoadTracingSupport)
@@ -66,6 +80,7 @@ WppAutoLogStop(
 // define annotation record that will carry control information to pdb (in case somebody needs it)
 WPP_FORCEINLINE void WPP_CONTROL_ANNOTATION() {
 #if !defined(WPP_NO_ANNOTATIONS)
+
 #ifndef WPP_TMC_ANNOT_SUFIX
 #ifdef WPP_PUBLIC_TMC
     #define WPP_TMC_ANNOT_SUFIX ,L"PUBLIC_TMF:"
@@ -76,16 +91,23 @@ WPP_FORCEINLINE void WPP_CONTROL_ANNOTATION() {
 
 #  define WPP_DEFINE_CONTROL_GUID(Name,Guid,Bits) __annotation(L"TMC:", WPP_GUID_WTEXT Guid, _WPPW(WPP_STRINGIZE(Name)) Bits WPP_TMC_ANNOT_SUFIX);
 #  define WPP_DEFINE_BIT(Name) , _WPPW(#Name)
-    WPP_CONTROL_GUIDS 
+    WPP_CONTROL_GUIDS
 #  undef WPP_DEFINE_BIT
 #  undef WPP_DEFINE_CONTROL_GUID
 #endif
 }
 
-
 #define WPP_NEXT(Name) ((WPP_TRACE_CONTROL_BLOCK*) \
-    (WPP_XGLUE(WPP_CTL_, WPP_EVAL(Name)) + 1 == WPP_LAST_CTL ? 0:WPP_MAIN_CB + WPP_XGLUE(WPP_CTL_, WPP_EVAL(Name)) + 1))    
+    (WPP_XGLUE(WPP_CTL_, WPP_EVAL(Name)) + 1 == WPP_LAST_CTL ? 0:WPP_MAIN_CB + WPP_XGLUE(WPP_CTL_, WPP_EVAL(Name)) + 1))
 
+#if ENABLE_WPP_RECORDER
+#define INIT_WPP_RECORDER(Arr)                  \
+   Arr->Control.AutoLogContext = NULL;          \
+   Arr->Control.AutoLogVerboseEnabled = 0x0;    \
+   Arr->Control.AutoLogAttachToMiniDump = 0x0;
+#else
+#define INIT_WPP_RECORDER(Arr)
+#endif
 
 WPP_CB_TYPE WPP_MAIN_CB[WPP_LAST_CTL];
 
@@ -96,9 +118,10 @@ __inline void WPP_INIT_CONTROL_ARRAY(WPP_CB_TYPE* Arr) {
    Arr->Control.Next = WPP_NEXT(WPP_EVAL(Name));                                        \
    Arr->Control.RegistryPath= NULL;                                                     \
    Arr->Control.FlagsLen = WPP_FLAG_LEN;                                                \
-   Arr->Control.Level = 0;                                                               \
+   Arr->Control.Level = 0;                                                              \
    Arr->Control.Reserved = 0;                                                           \
    Arr->Control.Flags[0] = 0;                                                           \
+   INIT_WPP_RECORDER(Arr)                                                               \
    ++Arr;
 #define WPP_DEFINE_BIT(BitName) L" " L ## #BitName
 WPP_CONTROL_GUIDS
@@ -106,29 +129,26 @@ WPP_CONTROL_GUIDS
 #undef WPP_DEFINE_CONTROL_GUID
 }
 
-
 #undef WPP_INIT_STATIC_DATA
 #define WPP_INIT_STATIC_DATA WPP_INIT_CONTROL_ARRAY(WPP_MAIN_CB)
-
-
 
 // define WPP_INIT_TRACING.  For performance reasons turn off during
 // static analysis compilation with Static Driver Verifier (SDV).
 #ifndef _SDV_
-#define WPP_INIT_TRACING(DrvObj, RegPath)                                   \
+#define WPP_INIT_TRACING(DriverObject, RegPath)                             \
     {                                                                       \
       WppDebug(0,("WPP_INIT_TRACING: &WPP_CB[0] %p\n", &WPP_MAIN_CB[0]));   \
       WPP_INIT_STATIC_DATA;                                                 \
       WppLoadTracingSupport();                                              \
       ( WPP_CONTROL_ANNOTATION(),                                           \
         WPP_MAIN_CB[0].Control.RegistryPath = NULL,                         \
-        WppInitKm( (PDEVICE_OBJECT)DrvObj, RegPath )                        \
+        WppInitKm( (PDRIVER_OBJECT)DriverObject, RegPath )                  \
       );                                                                    \
     }
 #else
-#define WPP_INIT_TRACING(DrvObj, RegPath)
+#define WPP_INIT_TRACING(DriverObject, RegPath)
 #endif
-    
+
 #define WMIREG_FLAG_CALLBACK  0x80000000 // not exposed in DDK
 
 #ifndef WMIREG_FLAG_TRACE_PROVIDER
@@ -140,7 +160,7 @@ WPP_CONTROL_GUIDS
 //
 
 #if !defined(KERNEL_LOGGER_ID)
-#define KERNEL_LOGGER_ID                      0xFFFF    // USHORT only 
+#define KERNEL_LOGGER_ID                      0xFFFF    // USHORT only
 #endif
 
 typedef struct _WPP_TRACE_ENABLE_CONTEXT {
@@ -163,12 +183,12 @@ typedef struct _WPP_TRACE_ENABLE_CONTEXT {
     ((PWPP_TRACE_ENABLE_CONTEXT) (&LoggerContext))->Level
 #endif
 
-#ifndef WPPINIT_EXPORT
-#define WPPINIT_EXPORT
-#endif
-
-#define WppIsEqualGuid(G1, G2)(RtlCompareMemory(G1, G2, sizeof(GUID)) == sizeof(GUID))
-
+__inline int WppIsEqualGuid(_In_ const GUID* g1, _In_ const GUID* g2)
+{
+    const ULONG* p1 = (const ULONG*)g1;
+    const ULONG* p2 = (const ULONG*)g2;
+    return p1[0] == p2[0] && p1[1] == p2[1] && p1[2] == p2[2] && p1[3] == p2[3];
+}
 
 VOID
 WppLoadTracingSupport(
@@ -179,12 +199,12 @@ WppLoadTracingSupport(
 Routine Description:
 
     This function assigns at runtime the ETW API set to be use for tracing.
-    
+
 Arguments:
-    
+
 Remarks:
 
-    At runtime determine assing the funtions pointers for the trace APIs to be use. 
+    At runtime determine assing the funtions pointers for the trace APIs to be use.
     XP and above will use TraceMessage, and Win2K is not supported.
 
 --*/
@@ -194,12 +214,12 @@ Remarks:
 
     PAGED_CODE();
 
-    RtlInitUnicodeString(&name, L"PsGetVersion");       
-    pfnWppGetVersion = (PFN_WPPGETVERSION) (INT_PTR) 
+    RtlInitUnicodeString(&name, L"PsGetVersion");
+    pfnWppGetVersion = (PFN_WPPGETVERSION) (INT_PTR)
         MmGetSystemRoutineAddress(&name);
 
     RtlInitUnicodeString(&name, L"WmiTraceMessage");
-    pfnWppTraceMessage = (PFN_WPPTRACEMESSAGE) (INT_PTR) 
+    pfnWppTraceMessage = (PFN_WPPTRACEMESSAGE) (INT_PTR)
         MmGetSystemRoutineAddress(&name);
 
 
@@ -208,7 +228,7 @@ Remarks:
     //
 
     RtlInitUnicodeString(&name, L"WmiQueryTraceInformation");
-    pfnWppQueryTraceInformation = (PFN_WPPQUERYTRACEINFORMATION) (INT_PTR) 
+    pfnWppQueryTraceInformation = (PFN_WPPQUERYTRACEINFORMATION) (INT_PTR)
         MmGetSystemRoutineAddress(&name);
     WPPTraceSuite = WppTraceWinXP;
 
@@ -226,7 +246,7 @@ Remarks:
     if (MajorVersion >= 6) {
 
         RtlInitUnicodeString(&name, L"EtwRegisterClassicProvider");
-        pfnEtwRegisterClassicProvider = (PFN_ETWREGISTERCLASSICPROVIDER) (INT_PTR) 
+        pfnEtwRegisterClassicProvider = (PFN_ETWREGISTERCLASSICPROVIDER) (INT_PTR)
             MmGetSystemRoutineAddress(&name);
 
         if (pfnEtwRegisterClassicProvider != NULL) {
@@ -234,14 +254,13 @@ Remarks:
             // For Vista SP1 and later
             //
             RtlInitUnicodeString(&name, L"EtwUnregister");
-            pfnEtwUnregister = (PFN_ETWUNREGISTER) (INT_PTR) 
+            pfnEtwUnregister = (PFN_ETWUNREGISTER) (INT_PTR)
                 MmGetSystemRoutineAddress(&name);
-        
+
             WPPTraceSuite = WppTraceServer08;
         }
     }
 }
-
 
 #ifdef WPP_GLOBALLOGGER
 #define DEFAULT_GLOBAL_LOGGER_KEY       L"WMI\\GlobalLogger\\"
@@ -254,23 +273,21 @@ WppInitGlobalLogger(
     _In_ LPCGUID ControlGuid,
     _Out_ PTRACEHANDLE LoggerHandle,
     _Out_ PULONG Flags,
-    _Out_ PUCHAR Level 
+    _Out_ PUCHAR Level
     )
 {
-WCHAR                      GRegValueName[GREGVALUENAMELENGTH]; 
+WCHAR                      GRegValueName[GREGVALUENAMELENGTH];
 RTL_QUERY_REGISTRY_TABLE   Parms[3];
 ULONG                      CurrentFlags = 0;
 ULONG                      CurrentLevel = 0;
 ULONG                      Start = 0;
 NTSTATUS                   Status;
 ULONG                      Zero = 0;
-UNICODE_STRING             GuidString;  
-
+UNICODE_STRING             GuidString;
 
    PAGED_CODE();
-    
+
    WppDebug(0,("WPP checking Global Logger\n"));
-   
 
    //
    // Fill in the query table to find out if the Global Logger is Started
@@ -295,7 +312,7 @@ UNICODE_STRING             GuidString;
                                    Parms,
                                    NULL,
                                    NULL);
-    if (!NT_SUCCESS(Status) || Start == 0 ) {  
+    if (!NT_SUCCESS(Status) || Start == 0 ) {
         return;
     }
 
@@ -321,10 +338,8 @@ UNICODE_STRING             GuidString;
       Parms[2].QueryRoutine  = NULL;
       Parms[2].Flags         = 0;
 
-
       RtlCopyMemory(GRegValueName, DEFAULT_GLOBAL_LOGGER_KEY,  (wcslen(DEFAULT_GLOBAL_LOGGER_KEY)+1) *sizeof(WCHAR));
 
- 
 #if defined(__cplusplus)
       Status = RtlStringFromGUID(*ControlGuid, &GuidString);
 #else
@@ -341,13 +356,13 @@ UNICODE_STRING             GuidString;
         RtlFreeUnicodeString(&GuidString);
         return;
       }
-        
-      // got the GUID in form "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}"   
+
+      // got the GUID in form "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}"
       // need GUID in form "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-      // copy the translated GUID string 
-      
+      // copy the translated GUID string
+
       RtlCopyMemory(&GRegValueName[(ULONG)wcslen(GRegValueName)], &GuidString.Buffer[1], GuidString.Length);
-      GRegValueName[(ULONG)wcslen(GRegValueName) - 1] = L'\0';  
+      GRegValueName[(ULONG)wcslen(GRegValueName) - 1] = L'\0';
       RtlFreeUnicodeString(&GuidString);
 
    //
@@ -369,7 +384,7 @@ UNICODE_STRING             GuidString;
         }
    } else {
         WppDebug(0,("WPP GlobalLogger has No Flags/Levels Status=%08X\n",Status));
-   }                                    
+   }
 }
 #endif  //#ifdef WPP_GLOBALLOGGER
 
@@ -395,16 +410,16 @@ Routine Description:
 Arguments:
 
     MinorFunction - specifies the type of callback (register, event enable/disable)
-    
+
     DataPath - varies depending on the ActionCode
-    
+
     BufferLength - size of the Buffer parameter
-    
+
     Buffer - in/out buffer where we read from or write to depending on the type
         of callback
-        
+
     Context - the pointer private struct WPP_TRACE_CONTROL_BLOCK
-        
+
     Size - output parameter to receive the amount of data written into Buffer
 
 Return Value:
@@ -425,12 +440,10 @@ Comments:
 
     UNREFERENCED_PARAMETER(DataPath);
 
-
     PAGED_CODE();
 
-    
     WppDebug(0,("WppTraceCallBack 0x%08X %p\n", MinorFunction, Context));
-    
+
     *Size = 0;
 
     switch(MinorFunction)
@@ -445,52 +458,52 @@ Comments:
             ULONG            GuidCount = 0;
 
             //
-            // Initialize locals 
+            // Initialize locals
             //
 
             cntl = (PWPP_TRACE_CONTROL_BLOCK)Context;
             WmiRegInfo = (PWMIREGINFO)Buffer;
-            
+
             RegPath = cntl->RegistryPath;
 
             //
             // Count the number of guid to be identified.
             //
             while(cntl) { GuidCount++; cntl = cntl->Next; }
-            
+
             if (GuidCount > WPP_MAX_COUNT_REGISTRATION_GUID){
                 Status = STATUS_INVALID_PARAMETER;
-                break;            
+                break;
             }
-            
-            WppDebug(0,("WppTraceCallBack: GUID count %d\n", GuidCount)); 
+
+            WppDebug(0,("WppTraceCallBack: GUID count %d\n", GuidCount));
 
             //
             // Calculate buffer size need to hold all info.
             // Calculate offset to where RegistryPath parm will be copied.
             //
-            
+
             if (RegPath == NULL)
             {
 
                 RegistryPathOffset = 0;
 
-                BufferNeeded = FIELD_OFFSET(WMIREGINFOW, WmiRegGuid) + 
+                BufferNeeded = FIELD_OFFSET(WMIREGINFOW, WmiRegGuid) +
                                GuidCount * sizeof(WMIREGGUIDW);
-                
+
             } else {
 
-                RegistryPathOffset = FIELD_OFFSET(WMIREGINFOW, WmiRegGuid) + 
+                RegistryPathOffset = FIELD_OFFSET(WMIREGINFOW, WmiRegGuid) +
                                      GuidCount * sizeof(WMIREGGUIDW);
 
                 BufferNeeded = RegistryPathOffset +
                                RegPath->Length + sizeof(USHORT);
-            }            
+            }
 
             //
             // If the provided buffer is large enough, then fill with info.
             //
-            
+
             if (BufferNeeded <= BufferLength)
             {
                 ULONG  i;
@@ -500,7 +513,7 @@ Comments:
                 //
                 // Fill in the WMIREGINFO
                 //
-                
+
                 WmiRegInfo->BufferSize   = BufferNeeded;
                 WmiRegInfo->RegistryPath = RegistryPathOffset;
                 WmiRegInfo->GuidCount    = GuidCount;
@@ -508,7 +521,7 @@ Comments:
                 if (RegPath != NULL) {
                     StringPtr    = (PWCHAR)((PUCHAR)Buffer + RegistryPathOffset);
                     *StringPtr++ = RegPath->Length;
-                    
+
                     RtlCopyMemory(StringPtr, RegPath->Buffer, RegPath->Length);
                 }
 
@@ -520,8 +533,8 @@ Comments:
 
                 for (i=0; i<GuidCount; i++) {
 
-                    WmiRegInfo->WmiRegGuid[i].Guid  = *cntl->ControlGuid;  
-                    WmiRegInfo->WmiRegGuid[i].Flags = WMIREG_FLAG_TRACE_CONTROL_GUID | 
+                    WmiRegInfo->WmiRegGuid[i].Guid  = *cntl->ControlGuid;
+                    WmiRegInfo->WmiRegGuid[i].Flags = WMIREG_FLAG_TRACE_CONTROL_GUID |
                                                       WMIREG_FLAG_TRACED_GUID;
                     cntl->Level = 0;
                     cntl->Flags[0] = 0;
@@ -537,8 +550,8 @@ Comments:
                                 cntl->ControlGuid->Data4[5],
                                 cntl->ControlGuid->Data4[6],
                                 cntl->ControlGuid->Data4[7]
-                        )); 
-                    
+                        ));
+
                     cntl = cntl->Next;
                 }
 
@@ -555,8 +568,8 @@ Comments:
             }
 
 #ifdef WPP_GLOBALLOGGER
-            // Check if Global logger is active            
-            
+            // Check if Global logger is active
+
             cntl = (PWPP_TRACE_CONTROL_BLOCK) Context;
             while(cntl) {
                 WppInitGlobalLogger(
@@ -564,10 +577,10 @@ Comments:
                                     (PTRACEHANDLE)&cntl->Logger,
                                     &cntl->Flags[0],
                                     &cntl->Level);
-                cntl = cntl->Next;                    
+                cntl = cntl->Next;
             }
 #endif  //#ifdef WPP_GLOBALLOGGER
-            
+
             break;
         }
 
@@ -590,22 +603,22 @@ Comments:
             }
 
             //
-            // Initialize locals 
+            // Initialize locals
             //
             Wnode = (PWNODE_HEADER)Buffer;
-            
+
             //
-            // Traverse this ProjectControlBlock's ControlBlock list and 
+            // Traverse this ProjectControlBlock's ControlBlock list and
             // find the "cntl" ControlBlock which matches the Wnode GUID.
             //
             cntl  = (PWPP_TRACE_CONTROL_BLOCK) Context;
             index = 0;
-            while(cntl) { 
+            while(cntl) {
                 if (WppIsEqualGuid(cntl->ControlGuid, &Wnode->Guid )) {
                     break;
                 }
                 index++;
-                cntl = cntl->Next; 
+                cntl = cntl->Next;
             }
 
             if (cntl == NULL) {
@@ -620,7 +633,7 @@ Comments:
 
             if (MinorFunction == IRP_MN_DISABLE_EVENTS) {
 
-                WppDebug(0,("WppTraceCallBack: DISABLE_EVENTS\n")); 
+                WppDebug(0,("WppTraceCallBack: DISABLE_EVENTS\n"));
 
                 cntl->Level    = 0;
                 cntl->Flags[0] = 0;
@@ -639,7 +652,7 @@ Comments:
                                                           &Level,
                                                           sizeof(Level),
                                                           &ReturnLength,
-                                                          (PVOID) Wnode );
+                                                          (PVOID)Wnode);
 
                     if (Status == STATUS_SUCCESS) {
                         cntl->Level = (UCHAR)Level;
@@ -668,16 +681,16 @@ Comments:
             //
             // Notify changes to flags, level for GUID
             //
-                WPP_PRIVATE_ENABLE_CALLBACK( cntl->ControlGuid, 
-                                             cntl->Logger, 
+                WPP_PRIVATE_ENABLE_CALLBACK( cntl->ControlGuid,
+                                             cntl->Logger,
                                              (MinorFunction != IRP_MN_DISABLE_EVENTS) ? TRUE:FALSE,
                                              cntl->Flags[0],
                                              cntl->Level );
-#endif 
+#endif
 
             break;
         }
-        
+
         case IRP_MN_ENABLE_COLLECTION:
         case IRP_MN_DISABLE_COLLECTION:
         {
@@ -705,7 +718,7 @@ Comments:
     return(Status);
 }
 
-VOID 
+VOID
 NTAPI
 WppClassicProviderCallback(
     _In_ LPCGUID Guid,
@@ -740,7 +753,7 @@ Return Value:
 {
     PWPP_TRACE_CONTROL_BLOCK TraceCb = (PWPP_TRACE_CONTROL_BLOCK)CallbackContext;
     PWPP_TRACE_ENABLE_CONTEXT TraceContext = (PWPP_TRACE_ENABLE_CONTEXT)EnableContext;
-    
+
     UNREFERENCED_PARAMETER (Guid);
 
     WppDebug(0,("WppClassicProviderCallback %d\n", (int)ControlCode));
@@ -751,7 +764,7 @@ Return Value:
 
     if ((ControlCode != EVENT_CONTROL_CODE_ENABLE_PROVIDER) &&
         (ControlCode != EVENT_CONTROL_CODE_DISABLE_PROVIDER)) {
-        
+
         return;
     }
 
@@ -759,6 +772,12 @@ Return Value:
         TraceCb->Flags[0] = TraceContext->EnableFlags;
         TraceCb->Level = (UCHAR)TraceContext->Level;
         TraceCb->Logger = *((TRACEHANDLE*)TraceContext);
+
+#if ENABLE_WPP_RECORDER
+#if ENABLE_WPP_RECORDER_REPLAY && (NTDDI_VERSION >= NTDDI_WIN10_RS1)
+        imp_WppRecorderReplay(&WPP_CB[0], TraceCb->Logger, TraceContext->EnableFlags, TraceContext->Level);
+#endif
+#endif //#if ENABLE_WPP_RECORDER
 
         WppDebug(0,("ENABLE: LoggerId=%d Flags=%08x Level=%02d\n", (int)TraceContext->LoggerId, TraceCb->Flags[0], TraceCb->Level));
     } else {
@@ -773,23 +792,23 @@ Return Value:
     //
     WppDebug(0,("WppClassicProviderCallback: calling private callback.\n"));
 
-    WPP_PRIVATE_ENABLE_CALLBACK(TraceCb->ControlGuid, 
-                                TraceCb->Logger, 
+    WPP_PRIVATE_ENABLE_CALLBACK(TraceCb->ControlGuid,
+                                TraceCb->Logger,
                                 ControlCode,
                                 TraceCb->Flags[0],
                                 TraceCb->Level);
 #endif
 
 }
-    
+
 
 #pragma warning(push)
 #pragma warning(disable:4068)
 WPPINIT_EXPORT
-VOID 
+VOID
 WppInitKm(
-    _In_opt_ PDEVICE_OBJECT DevObject,
-    _In_opt_ PCUNICODE_STRING RegPath
+    _When_(_ENABLE_WPP_RECORDER, _In_) _When_(!_ENABLE_WPP_RECORDER, _In_opt_) PDRIVER_OBJECT DriverObject,
+    _When_(_ENABLE_WPP_RECORDER, _In_) _When_(!_ENABLE_WPP_RECORDER, _In_opt_) PCUNICODE_STRING RegPath
     )
 
 /*++
@@ -798,38 +817,39 @@ Routine Description:
 
     This function registers a driver with ETW as a provider of trace
     events from the defined GUIDs.
-    
+
 Arguments:
 
-    DevObject - Optional pointer to a device object object. Not used.
+    DriverObject - Pointer to a driver object. This is required for WppRecorder
+                   and is optional otherwise (not used unless it's for
+                   WppRecorder).
 
     RegPath - Optional pointer to registry path, needed for wpp recorder.
-    
+
 Remarks:
 
-   This function is called by the WPP_INIT_TRACING(DrvObj, RegPath) macro, for XP and 
-   above the DrvObj can be NULL.
-    
+   This function is called by the WPP_INIT_TRACING(DriverObject, RegPath) macro.
+
 --*/
-    
+
 {
-    C_ASSERT(WPP_MAX_FLAG_LEN_CHECK); 
+    C_ASSERT(WPP_MAX_FLAG_LEN_CHECK);
 
     NTSTATUS Status;
     PWPP_TRACE_CONTROL_BLOCK WppReg = NULL;
 
     PAGED_CODE();
 
-    UNREFERENCED_PARAMETER(DevObject);
+    UNREFERENCED_PARAMETER(DriverObject);
     UNREFERENCED_PARAMETER(RegPath);
-    
+
     if (WPP_CB != WPP_MAIN_CB) {
 
         WPP_CB = WPP_MAIN_CB;
 
     } else {
       //
-      // WPP_INIT_TRACING allready called
+      // WPP_INIT_TRACING already called
       //
       WppDebug(0,("Warning : WPP_INIT_TRACING already called, ignoring this one"));
       return;
@@ -843,53 +863,53 @@ Remarks:
 
         //
         // Windows version >= Vista SP1
-        //      
+        //
         while (WppReg) {
 
             WppReg->RegHandle = 0;
             Status = pfnEtwRegisterClassicProvider(
-                WppReg->ControlGuid, 
-                0, 
-                WppClassicProviderCallback, 
-                (PVOID)WppReg, 
+                WppReg->ControlGuid,
+                0,
+                WppClassicProviderCallback,
+                (PVOID)WppReg,
                 &WppReg->RegHandle);
 
             if (!NT_SUCCESS(Status)) {
                 WppDebug(0,("EtwRegisterClassicProvider Status = %d, ControlBlock = %p.\n", Status, WppReg));
             }
-            
+
             WppReg = WppReg->Next;
-        }        
+        }
 
     } else if (WppTraceWinXP == WPPTraceSuite) {
 
-        
+
         WppReg -> Callback = WppTraceCallback;
 
 #pragma prefast(suppress:__WARNING_BANNED_API_ARGUMENT_USAGE, "WPP generated, requires legacy providers");
         Status = IoWMIRegistrationControl(
                                     (PDEVICE_OBJECT)WppReg,
-                                    WMIREG_ACTION_REGISTER  | 
+                                    WMIREG_ACTION_REGISTER  |
                                     WMIREG_FLAG_CALLBACK    |
                                     WMIREG_FLAG_TRACE_PROVIDER
-                                    );        
+                                    );
 
         if (!NT_SUCCESS(Status)) {
             WppDebug(0,("IoWMIRegistrationControl Status = %08X\n",Status));
         }
-        
+
     }
 
 #if ENABLE_WPP_RECORDER
-    WppAutoLogStart(&WPP_CB[0], (PDRIVER_OBJECT)DevObject, RegPath);
+    WppAutoLogStart(&WPP_CB[0], DriverObject, RegPath);
 #endif
 
 }
 
 WPPINIT_EXPORT
-VOID 
+VOID
 WppCleanupKm(
-    _In_opt_ PDEVICE_OBJECT DeviceObject
+    _When_(_ENABLE_WPP_RECORDER, _In_) _When_(!_ENABLE_WPP_RECORDER, _In_opt_) PDRIVER_OBJECT DriverObject
     )
 
 /*++
@@ -898,23 +918,24 @@ Routine Description:
 
     This function deregisters a driver from ETW as provider of trace
     events.
-    
+
 Arguments:
 
-    DevObject - Optional pointer to a device object object, needed only for W2K. Not used. 
+    DriverObject - Pointer to a driver object. This is required for WppRecorder
+                   and is optional otherwise (not used unless it's for
+                   WppRecorder).
 
 Remarks:
 
-    This is the defined WPP_CLEANUP(DrvObj) macro, and the macro can
-    take NULL as an argument for XP and above.
-        
+    This function is called by the WPP_CLEANUP(DriverObject) macro.
+
 --*/
 
 {
-    UNREFERENCED_PARAMETER(DeviceObject);
+    UNREFERENCED_PARAMETER(DriverObject);
 
     PAGED_CODE();
-    
+
     if (WPP_CB == (WPP_CB_TYPE*)&WPP_CB){
         //
         // WPP_INIT_TRACING macro has not been called
@@ -929,8 +950,9 @@ Remarks:
 
         while (WppReg) {
             if (WppReg->RegHandle) {
-                pfnEtwUnregister(WppReg->RegHandle);    
+                pfnEtwUnregister(WppReg->RegHandle);
                 WppDebug(0,("EtwUnregister RegHandle = %lld.\n",WppReg->RegHandle));
+                WppReg->RegHandle = 0;
             } else {
                 WppDebug(0,("WppCleanupKm: invalid RegHandle.\n"));
             }
@@ -940,15 +962,15 @@ Remarks:
     } else if (WppTraceWinXP == WPPTraceSuite) {
         PWPP_TRACE_CONTROL_BLOCK WppReg = &WPP_CB[0].Control;
 
-        IoWMIRegistrationControl(   (PDEVICE_OBJECT)WppReg, 
-                                    WMIREG_ACTION_DEREGISTER | 
+        IoWMIRegistrationControl(   (PDEVICE_OBJECT)WppReg,
+                                    WMIREG_ACTION_DEREGISTER |
                                     WMIREG_FLAG_CALLBACK );
-                                    
+
     }
-    
-#if ENABLE_WPP_RECORDER    
-        WppAutoLogStop(&WPP_CB[0], (PDRIVER_OBJECT)DeviceObject);
-#endif    
+
+#if ENABLE_WPP_RECORDER
+        WppAutoLogStop(&WPP_CB[0], DriverObject);
+#endif
 
     WPP_CB = (WPP_CB_TYPE*)&WPP_CB;
 }
@@ -958,6 +980,6 @@ Remarks:
 #define WPP_SYSTEMCONTROL(PDO)
 #define WPP_SYSTEMCONTROL2(PDO, offset)
 
-#if defined(__cplusplus)
-};
+#ifdef __cplusplus
+} // extern "C"
 #endif
