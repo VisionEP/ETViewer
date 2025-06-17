@@ -425,17 +425,25 @@ void CHighLightFiltersEditor::OnCustomDraw(NMHDR* pNMHDR, LRESULT* pResult)
         }
     }
 }
-void CHighLightFiltersEditor::OnDoubleClick(NMHDR* pNMHDR, LRESULT* pResult) 
+void CHighLightFiltersEditor::OnDoubleClick(NMHDR* pNMHDR, LRESULT* pResult)
 {
     NMITEMACTIVATE *pActivate=(NMITEMACTIVATE *)pNMHDR;
-    CHightLightFilter *pFilter=new CHightLightFilter;
+    int sel = pActivate->iItem;
+
+    if(sel != -1)
+    {
+        m_LWFilters.EditLabel(sel);
+        *pResult = 0;
+        return;
+    }
+
+    CHightLightFilter *pFilter = new CHightLightFilter;
     pFilter->SetText(_T("<New Filter>"));
-    int sel=pActivate->iItem;
-    if(sel!=-1){m_LWFilters.EditLabel(sel);return;}
-    int index=m_LWFilters.InsertItem(sel==-1?m_LWFilters.GetItemCount():sel,pFilter->GetText().c_str(),0);
-    m_LWFilters.SetItemState(index,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
-    m_LWFilters.SetItemData(index,(DWORD)pFilter);
-    m_LWFilters.SetCheck(index,true);
+
+    int index = m_LWFilters.InsertItem(m_LWFilters.GetItemCount(), pFilter->GetText().c_str(), 0);
+    m_LWFilters.SetItemState(index, LVIS_SELECTED|LVIS_FOCUSED, LVIS_SELECTED|LVIS_FOCUSED);
+    m_LWFilters.SetItemData(index, (DWORD)pFilter);
+    m_LWFilters.SetCheck(index, true);
     m_LWFilters.EditLabel(index);
     *pResult = 0;
 }
